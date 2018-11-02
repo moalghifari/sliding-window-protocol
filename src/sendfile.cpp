@@ -56,7 +56,7 @@ int main(int argc, char *argv[]) {
     char *destinationIP;
     int destinationPort;
     int maxBufferSize;
-    struct hostent *dest_hnet;
+    struct hostent *destinationHnet;
     char *fname;
 
     if (argc == 6) {
@@ -70,8 +70,8 @@ int main(int argc, char *argv[]) {
         return 1; 
     }
 
-    dest_hnet = gethostbyname(destinationIP); 
-    if (!dest_hnet) {
+    destinationHnet = gethostbyname(destinationIP); 
+    if (!destinationHnet) {
         cerr << "unknown host: " << destinationIP << endl;
         return 1;
     }
@@ -80,8 +80,8 @@ int main(int argc, char *argv[]) {
     memset(&clientAddress, 0, sizeof(clientAddress)); 
 
     serverAddress.sin_family = AF_INET;
-    bcopy(dest_hnet->h_addr, (char *)&serverAddress.sin_addr, 
-            dest_hnet->h_length); 
+    bcopy(destinationHnet->h_addr, (char *)&serverAddress.sin_addr, 
+            destinationHnet->h_length); 
     serverAddress.sin_port = htons(destinationPort);
 
     clientAddress.sin_family = AF_INET;
@@ -106,46 +106,46 @@ int main(int argc, char *argv[]) {
 
     FILE *file = fopen(fname, "rb");
     char buffer[maxBufferSize];
-    int buffer_size;
+    int bufferSize;
     thread recv_thread(listenAck);
 
     char frame[MAX_FRAME_SIZE];
     char data[MAX_DATA_SIZE];
-    int frame_size;
-    int data_size;
+    int frameSize;
+    int dataSize;
 
-    bool read_done = false;
-    int buffer_num = 0;
-    while (!read_done) {
+    bool readDone = false;
+    int bufferNum = 0;
+    while (!readDone) {
 
-        buffer_size = fread(buffer, 1, maxBufferSize, file);
-        if (buffer_size == maxBufferSize) {
+        bufferSize = fread(buffer, 1, maxBufferSize, file);
+        if (bufferSize == maxBufferSize) {
             char temp[1];
-            int next_buffer_size = fread(temp, 1, 1, file);
-            if (next_buffer_size == 0) read_done = true;
+            int nextBufferSize = fread(temp, 1, 1, file);
+            if (nextBufferSize == 0) readDone = true;
             int error = fseek(file, -1, SEEK_CUR);
-        } else if (buffer_size < maxBufferSize) {
-            read_done = true;
+        } else if (bufferSize < maxBufferSize) {
+            readDone = true;
         }
         
         windowInfoMutex.lock();
 
-        int seq_count = buffer_size / MAX_DATA_SIZE + ((buffer_size % MAX_DATA_SIZE == 0) ? 0 : 1);
-        int seq_num;
+        int sequenceCount = bufferSize / MAX_DATA_SIZE + ((bufferSize % MAX_DATA_SIZE == 0) ? 0 : 1);
+        int sequenceNumber;
         windowSentTime = new time_stamp[windowLength];
         isWindowAcked = new bool[windowLength];
-        bool window_sent_mask[windowLength];
+        bool isWindowSent[windowLength];
         for (int i = 0; i < windowLength; i++) {
             isWindowAcked[i] = false;
-            window_sent_mask[i] = false;
+            isWindowSent[i] = false;
         }
         lar = -1;
         lfs = lar + windowLength;
 
         windowInfoMutex.unlock();
 
-        bool send_done = false;
-        while (!send_done) {
+        bool sent = false;
+        while (!sent) {
 
             windowInfoMutex.lock();
 
@@ -156,12 +156,12 @@ int main(int argc, char *argv[]) {
                     shift += 1;
                 }
                 for (int i = 0; i < windowLength - shift; i++) {
-                    window_sent_mask[i] = window_sent_mask[i + shift];
+                    isWindowSent[i] = isWindowSent[i + shift];
                     isWindowAcked[i] = isWindowAcked[i + shift];
                     windowSentTime[i] = windowSentTime[i + shift];
                 }
                 for (int i = windowLength - shift; i < windowLength; i++) {
-                    window_sent_mask[i] = false;
+                    isWindowSent[i] = false;
                     isWindowAcked[i] = false;
                 }
                 lar += shift;
@@ -171,22 +171,22 @@ int main(int argc, char *argv[]) {
             windowInfoMutex.unlock();
 
             for (int i = 0; i < windowLength; i ++) {
-                seq_num = lar + i + 1;
+                sequenceNumber = lar + i + 1;
 
-                if (seq_num < seq_count) {
+                if (sequenceNumber < sequenceCount) {
                     windowInfoMutex.lock();
 
-                    if (!window_sent_mask[i] || (!isWindowAcked[i] && (elapsed_time(current_time(), windowSentTime[i]) > TIMEOUT))) {
-                        int buffer_shift = seq_num * MAX_DATA_SIZE;
-                        data_size = (buffer_size - buffer_shift < MAX_DATA_SIZE) ? (buffer_size - buffer_shift) : MAX_DATA_SIZE;
-                        memcpy(data, buffer + buffer_shift, data_size);
+                    if (!isWindowSent[i] || (!isWindowAcked[i] && (elapsed_time(current_time(), windowSentTime[i]) > TIMEOUT))) {
+                        int bufferShift = sequenceNumber * MAX_DATA_SIZE;
+                        dataSize = (bufferSize - bufferShift < MAX_DATA_SIZE) ? (bufferSize - bufferShift) : MAX_DATA_SIZE;
+                        memcpy(data, buffer + bufferShift, dataSize);
                         
-                        bool eot = (seq_num == seq_count - 1) && (read_done);
-                        frame_size = create_frame(seq_num, frame, data, data_size, eot);
+                        bool eot = (sequenceNumber == sequenceCount - 1) && (readDone);
+                        frameSize = create_frame(sequenceNumber, frame, data, dataSize, eot);
 
-                        sendto(socketObj, frame, frame_size, 0, 
+                        sendto(socketObj, frame, frameSize, 0, 
                                 (const struct sockaddr *) &serverAddress, sizeof(serverAddress));
-                        window_sent_mask[i] = true;
+                        isWindowSent[i] = true;
                         windowSentTime[i] = current_time();
                     }
 
@@ -194,13 +194,13 @@ int main(int argc, char *argv[]) {
                 }
             }
 
-            if (lar >= seq_count - 1) send_done = true;
+            if (lar >= sequenceCount - 1) sent = true;
         }
 
-        cout << "\r" << "[SENT " << (unsigned long long) buffer_num * (unsigned long long) 
-                maxBufferSize + (unsigned long long) buffer_size << " BYTES]" << flush;
-        buffer_num += 1;
-        if (read_done) break;
+        cout << "\r" << "Sent " << (unsigned long long) bufferNum * (unsigned long long) 
+                maxBufferSize + (unsigned long long) bufferSize << " bytes" << flush;
+        bufferNum += 1;
+        if (readDone) break;
     }
     
     fclose(file);

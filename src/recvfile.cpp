@@ -79,6 +79,7 @@ int main(int argc, char * argv[]) {
     bool eot;
     bool frameError;
     bool recv = true;
+
     while (recv) {
         bufferSize = maxBufferSize;
         memset(buffer, 0, bufferSize);
