@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <sys/socket.h>
 #include <netdb.h>
-#include "helpers.h"
+#include "util.h"
 
 #define STDBY_TIME 5000
 using namespace std;
@@ -43,7 +43,7 @@ int main(int argc, char * argv[]) {
         maxBufferSize = MAX_DATA_SIZE * (int) atoi(argv[3]);
         port = atoi(argv[4]);
     } else {
-        cerr << "usage: ./recvfile <filename> <window_size> <buffer_size> <port>" << endl;
+        cout << "wrong argument" << endl;
         return 1;
     }
 
@@ -55,13 +55,13 @@ int main(int argc, char * argv[]) {
     memset(&clientAddress, 0, sizeof(clientAddress)); 
 
     if ((socketObj = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        cerr << "socket failed" << endl;
+        count << "socket failed" << endl;
         return 1;
     }
 
     if (::bind(socketObj, (const struct sockaddr *)&serverAddr, 
             sizeof(serverAddr)) < 0) { 
-        cerr << "socket binding error" << endl;
+        cout << "socket binding error" << endl;
         return 1;
     }
 
@@ -79,17 +79,6 @@ int main(int argc, char * argv[]) {
     bool eot;
     bool frameError;
     bool recv = true;
-
-    cout << '=============================' << endl;
-    cout << '=============================' << endl;
-    cout << '=== |||||||  ||||| |||||| ===' << endl;
-    cout << '=== |     |  |     |      ===' << endl;
-    cout << '=== |||||||  |     |      ===' << endl;
-    cout << '=== ||||     ||||| |      ===' << endl;
-    cout << '=== |  |||   |     |      ===' << endl;
-    cout << '=== |   |||  ||||| |||||| ===' << endl;
-    cout << '=============================' << endl;
-    cout << '=============================' << endl;
 
     while (recv) {
         bufferSize = maxBufferSize;
