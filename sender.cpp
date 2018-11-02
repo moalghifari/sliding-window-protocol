@@ -137,7 +137,7 @@ int main(int argc, char *argv[]) {
     char buffer[maxBufferSize];
     int bufferSize;
 
-    thread recv_thread(listen_ack);
+    thread recv_thread(receiveAck);
 
     char frame[MAX_FRAME_SIZE];
     char data[MAX_DATA_SIZE];

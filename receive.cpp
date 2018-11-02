@@ -1,41 +1,62 @@
 #include <iostream>
 #include <thread>
-
 #include <stdio.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include <chrono>
+#include <stdlib.h> 
+#include <string.h>
+#include <sys/types.h>
+#include <netinet/in.h>
 
-#include "helpers.h"
+#define MAX_DATA_SIZE 1024
+#define MAX_FRAME_SIZE 1034
+#define ACK_SIZE 6
+
+#define now chrono::high_resolution_clock::now
+#define timestamp chrono::high_resolution_clock::time_point
+#define differentTime(end, start) chrono::duration_cast<chrono::milliseconds>(end - start).count()
 
 #define STDBY_TIME 3000
 
 using namespace std;
 
-int socket_fd;
-struct sockaddr_in server_addr, client_addr;
+int socket;
+struct sockaddr_in serverAddr, clientAddr;
 
-void send_ack() {
+char checksum(char *frame, int count) {
+    u_long sum = 0;
+    while (count--) {
+        sum += *frame++;
+        if (sum & 0xFFFF0000) {
+            sum &= 0xFFFF;
+            sum++; 
+        }
+    }
+    return (sum & 0xFFFF);
+}
+
+void sendAck() {
     char frame[MAX_FRAME_SIZE];
     char data[MAX_DATA_SIZE];
     char ack[ACK_SIZE];
-    int frame_size;
-    int data_size;
-    socklen_t client_addr_size;
-    
-    int recv_seq_num;
+    int frameSize;
+    int dataSize;
+    int receiveSeqNum;
     bool frame_error;
     bool eot;
+    socklen_t clientAddrSize;
 
     /* Listen for frames and send ack */
     while (true) {
-        frame_size = recvfrom(socket_fd, (char *)frame, MAX_FRAME_SIZE, 
-                MSG_WAITALL, (struct sockaddr *) &client_addr, 
-                &client_addr_size);
-        frame_error = read_frame(&recv_seq_num, data, &data_size, &eot, frame);
+        frameSize = recvfrom(socket, (char *)frame, MAX_FRAME_SIZE, 
+                MSG_WAITALL, (struct sockaddr *) &clientAddr, 
+                &clientAddrSize);
+        frame_error = read_frame(&receiveSeqNum, data, &dataSize, &eot, frame);
 
-        create_ack(recv_seq_num, ack, frame_error);
-        sendto(socket_fd, ack, ACK_SIZE, 0, 
-                (const struct sockaddr *) &client_addr, client_addr_size);
+        create_ack(receiveSeqNum, ack, frame_error);
+        sendto(socket, ack, ACK_SIZE, 0, 
+                (const struct sockaddr *) &clientAddr, clientAddrSize);
     }
 }
 
@@ -55,23 +76,23 @@ int main(int argc, char * argv[]) {
         return 1;
     }
 
-    memset(&server_addr, 0, sizeof(server_addr)); 
-    memset(&client_addr, 0, sizeof(client_addr)); 
+    memset(&serverAddr, 0, sizeof(serverAddr)); 
+    memset(&clientAddr, 0, sizeof(clientAddr)); 
       
     /* Fill server address data structure */
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY; 
-    server_addr.sin_port = htons(port);
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_addr.s_addr = INADDR_ANY; 
+    serverAddr.sin_port = htons(port);
 
     /* Create socket file descriptor */ 
-    if ((socket_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+    if ((socket = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         cerr << "socket creation failed" << endl;
         return 1;
     }
 
     /* Bind socket to server address */
-    if (::bind(socket_fd, (const struct sockaddr *)&server_addr, 
-            sizeof(server_addr)) < 0) { 
+    if (::bind(socket, (const struct sockaddr *)&serverAddr, 
+            sizeof(serverAddr)) < 0) { 
         cerr << "socket binding failed" << endl;
         return 1;
     }
@@ -84,10 +105,10 @@ int main(int argc, char * argv[]) {
     char frame[MAX_FRAME_SIZE];
     char data[MAX_DATA_SIZE];
     char ack[ACK_SIZE];
-    int frame_size;
-    int data_size;
+    int frameSize;
+    int dataSize;
     int lfr, laf;
-    int recv_seq_num;
+    int receiveSeqNum;
     bool eot;
     bool frame_error;
 
@@ -108,22 +129,22 @@ int main(int argc, char * argv[]) {
         
         /* Receive current buffer with sliding window */
         while (true) {
-            socklen_t client_addr_size;
-            frame_size = recvfrom(socket_fd, (char *) frame, MAX_FRAME_SIZE, 
-                    MSG_WAITALL, (struct sockaddr *) &client_addr, 
-                    &client_addr_size);
-            frame_error = read_frame(&recv_seq_num, data, &data_size, &eot, frame);
+            socklen_t clientAddrSize;
+            frameSize = recvfrom(socket, (char *) frame, MAX_FRAME_SIZE, 
+                    MSG_WAITALL, (struct sockaddr *) &clientAddr, 
+                    &clientAddrSize);
+            frame_error = read_frame(&receiveSeqNum, data, &dataSize, &eot, frame);
 
-            create_ack(recv_seq_num, ack, frame_error);
-            sendto(socket_fd, ack, ACK_SIZE, 0, 
-                    (const struct sockaddr *) &client_addr, client_addr_size);
+            create_ack(receiveSeqNum, ack, frame_error);
+            sendto(socket, ack, ACK_SIZE, 0, 
+                    (const struct sockaddr *) &clientAddr, clientAddrSize);
 
-            if (recv_seq_num <= laf) {
+            if (receiveSeqNum <= laf) {
                 if (!frame_error) {
-                    int buffer_shift = recv_seq_num * MAX_DATA_SIZE;
+                    int buffer_shift = receiveSeqNum * MAX_DATA_SIZE;
 
-                    if (recv_seq_num == lfr + 1) {
-                        memcpy(buffer + buffer_shift, data, data_size);
+                    if (receiveSeqNum == lfr + 1) {
+                        memcpy(buffer + buffer_shift, data, dataSize);
 
                         int shift = 1;
                         for (int i = 1; i < window_len; i++) {
@@ -138,17 +159,17 @@ int main(int argc, char * argv[]) {
                         }
                         lfr += shift;
                         laf = lfr + window_len;
-                    } else if (recv_seq_num > lfr + 1) {
-                        if (!window_recv_mask[recv_seq_num - (lfr + 1)]) {
-                            memcpy(buffer + buffer_shift, data, data_size);
-                            window_recv_mask[recv_seq_num - (lfr + 1)] = true;
+                    } else if (receiveSeqNum > lfr + 1) {
+                        if (!window_recv_mask[receiveSeqNum - (lfr + 1)]) {
+                            memcpy(buffer + buffer_shift, data, dataSize);
+                            window_recv_mask[receiveSeqNum - (lfr + 1)] = true;
                         }
                     }
 
                     /* Set max sequence to sequence of frame with EOT */ 
                     if (eot) {
-                        buffer_size = buffer_shift + data_size;
-                        recv_seq_count = recv_seq_num + 1;
+                        buffer_size = buffer_shift + dataSize;
+                        recv_seq_count = receiveSeqNum + 1;
                         recv_done = true;
                     }
                 }
@@ -168,8 +189,8 @@ int main(int argc, char * argv[]) {
 
     /* Start thread to keep sending requested ack to sender for 3 seconds */
     thread stdby_thread(send_ack);
-    time_stamp start_time = current_time();
-    while (elapsed_time(current_time(), start_time) < STDBY_TIME) {
+    timestamp start_time = now();
+    while (differentTime(now(), start_time) < STDBY_TIME) {
         cout << "\r" << "[STANDBY TO SEND ACK FOR 3 SECONDS | ]" << flush;
         sleep_for(100);
         cout << "\r" << "[STANDBY TO SEND ACK FOR 3 SECONDS / ]" << flush;
