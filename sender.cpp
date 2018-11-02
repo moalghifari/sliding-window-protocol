@@ -32,6 +32,18 @@ timestamp TMIN = now();
 timestamp *windowTime;
 mutex windowInfoMutex;
 
+char checksum(char *frame, int count) {
+    u_long sum = 0;
+    while (count--) {
+        sum += *frame++;
+        if (sum & 0xFFFF0000) {
+            sum &= 0xFFFF;
+            sum++; 
+        }
+    }
+    return (sum & 0xFFFF);
+}
+
 bool getAck(int *seqNum, bool *notSended, char *ack, bool *error) {
     uint32_t netSeqNum;
     memcpy(&netSeqNum, ack + 1, 4);
