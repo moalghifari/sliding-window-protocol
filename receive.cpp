@@ -16,6 +16,7 @@
 #define now chrono::high_resolution_clock::now
 #define timestamp chrono::high_resolution_clock::time_point
 #define differentTime(end, start) chrono::duration_cast<chrono::milliseconds>(end - start).count()
+#define sleep_for(x) this_thread::sleep_for(chrono::milliseconds(x));
 
 #define STDBY_TIME 3000
 
@@ -36,6 +37,29 @@ char checksum(char *frame, int count) {
     return (sum & 0xFFFF);
 }
 
+bool getFrame(int *seqNum, char *data, int *dataSize, bool *eot, char *frame) {
+    *eot = frame[0] == 0x0 ? true : false;
+
+    uint32_t netSeqNum;
+    memcpy(&netSeqNum, frame + 1, 4);
+    *seqNum = ntohl(netSeqNum);
+
+    uint32_t netDataSize;
+    memcpy(&netDataSize, frame + 5, 4);
+    *dataSize = ntohl(netDataSize);
+
+    memcpy(data, frame + 9, *dataSize);
+
+    return frame[*dataSize + 9] != checksum(frame, *dataSize + (int) 9);
+}
+
+void create_ack(int seqNum, char *ack, bool error) {
+    ack[0] = error ? 0x0 : 0x1;
+    uint32_t netSeqNum = htonl(seqNum);
+    memcpy(ack + 1, &netSeqNum, 4);
+    ack[5] = checksum(ack, ACK_SIZE - (int) 1);
+}
+
 void sendAck() {
     char frame[MAX_FRAME_SIZE];
     char data[MAX_DATA_SIZE];
@@ -52,7 +76,7 @@ void sendAck() {
         frameSize = recvfrom(socket, (char *)frame, MAX_FRAME_SIZE, 
                 MSG_WAITALL, (struct sockaddr *) &clientAddr, 
                 &clientAddrSize);
-        frame_error = read_frame(&receiveSeqNum, data, &dataSize, &eot, frame);
+        frame_error = getFrame(&receiveSeqNum, data, &dataSize, &eot, frame);
 
         create_ack(receiveSeqNum, ack, frame_error);
         sendto(socket, ack, ACK_SIZE, 0, 
@@ -62,46 +86,44 @@ void sendAck() {
 
 int main(int argc, char * argv[]) {
     int port;
-    int window_len;
-    int max_buffer_size;
-    char *fname;
+    int lengthOfWindow;
+    int maxBufferSize;
+    char *filename;
 
+    //cek argumen
     if (argc == 5) {
-        fname = argv[1];
-        window_len = (int) atoi(argv[2]);
-        max_buffer_size = MAX_DATA_SIZE * (int) atoi(argv[3]);
+        filename = argv[1];
+        lengthOfWindow = (int) atoi(argv[2]);
+        maxBufferSize = MAX_DATA_SIZE * (int) atoi(argv[3]);
         port = atoi(argv[4]);
     } else {
-        cerr << "usage: ./recvfile <filename> <window_size> <buffer_size> <port>" << endl;
+        cout << "wrong argument" << endl;
         return 1;
     }
-
-    memset(&serverAddr, 0, sizeof(serverAddr)); 
-    memset(&clientAddr, 0, sizeof(clientAddr)); 
       
-    /* Fill server address data structure */
+    // Init server
+    memset(&serverAddr, 0, sizeof(serverAddr)); 
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = INADDR_ANY; 
     serverAddr.sin_port = htons(port);
 
-    /* Create socket file descriptor */ 
+    memset(&clientAddr, 0, sizeof(clientAddr)); 
+
+    // Create & bind socket 
     if ((socket = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        cerr << "socket creation failed" << endl;
+        cout << "socket failed" << endl;
         return 1;
     }
-
-    /* Bind socket to server address */
     if (::bind(socket, (const struct sockaddr *)&serverAddr, 
             sizeof(serverAddr)) < 0) { 
-        cerr << "socket binding failed" << endl;
+        count << "socket binding error" << endl;
         return 1;
     }
 
-    FILE *file = fopen(fname, "wb");
-    char buffer[max_buffer_size];
-    int buffer_size;
+    FILE *file = fopen(filename, "wb");
+    char buffer[maxBufferSize];
+    int bufferSize;
 
-    /* Initialize sliding window variables */
     char frame[MAX_FRAME_SIZE];
     char data[MAX_DATA_SIZE];
     char ack[ACK_SIZE];
@@ -112,20 +134,20 @@ int main(int argc, char * argv[]) {
     bool eot;
     bool frame_error;
 
-    /* Receive frames until EOT */
-    bool recv_done = false;
-    int buffer_num = 0;
-    while (!recv_done) {
-        buffer_size = max_buffer_size;
-        memset(buffer, 0, buffer_size);
+    //dapetin data
+    bool receive = true;
+    int bufferNum = 0;
+    while (receive) {
+        bufferSize = maxBufferSize;
+        memset(buffer, 0, bufferSize);
     
-        int recv_seq_count = (int) max_buffer_size / MAX_DATA_SIZE;
-        bool window_recv_mask[window_len];
-        for (int i = 0; i < window_len; i++) {
-            window_recv_mask[i] = false;
+        int receiveSeqCount = (int) maxBufferSize / MAX_DATA_SIZE;
+        bool windowReceive[lengthOfWindow];
+        for (int i = 0; i < lengthOfWindow; i++) {
+            windowReceive[i] = false;
         }
         lfr = -1;
-        laf = lfr + window_len;
+        laf = lfr + lengthOfWindow;
         
         /* Receive current buffer with sliding window */
         while (true) {
@@ -133,7 +155,7 @@ int main(int argc, char * argv[]) {
             frameSize = recvfrom(socket, (char *) frame, MAX_FRAME_SIZE, 
                     MSG_WAITALL, (struct sockaddr *) &clientAddr, 
                     &clientAddrSize);
-            frame_error = read_frame(&receiveSeqNum, data, &dataSize, &eot, frame);
+            frame_error = getFrame(&receiveSeqNum, data, &dataSize, &eot, frame);
 
             create_ack(receiveSeqNum, ack, frame_error);
             sendto(socket, ack, ACK_SIZE, 0, 
@@ -141,67 +163,56 @@ int main(int argc, char * argv[]) {
 
             if (receiveSeqNum <= laf) {
                 if (!frame_error) {
-                    int buffer_shift = receiveSeqNum * MAX_DATA_SIZE;
+                    int bufferShift = receiveSeqNum * MAX_DATA_SIZE;
 
                     if (receiveSeqNum == lfr + 1) {
-                        memcpy(buffer + buffer_shift, data, dataSize);
+                        memcpy(buffer + bufferShift, data, dataSize);
 
                         int shift = 1;
-                        for (int i = 1; i < window_len; i++) {
-                            if (!window_recv_mask[i]) break;
+                        for (int i = 1; i < lengthOfWindow; i++) {
+                            if (!windowReceive[i]) break;
                             shift += 1;
                         }
-                        for (int i = 0; i < window_len - shift; i++) {
-                            window_recv_mask[i] = window_recv_mask[i + shift];
+                        for (int i = 0; i < lengthOfWindow - shift; i++) {
+                            windowReceive[i] = windowReceive[i + shift];
                         }
-                        for (int i = window_len - shift; i < window_len; i++) {
-                            window_recv_mask[i] = false;
+                        for (int i = lengthOfWindow - shift; i < lengthOfWindow; i++) {
+                            windowReceive[i] = false;
                         }
                         lfr += shift;
-                        laf = lfr + window_len;
+                        laf = lfr + lengthOfWindow;
                     } else if (receiveSeqNum > lfr + 1) {
-                        if (!window_recv_mask[receiveSeqNum - (lfr + 1)]) {
-                            memcpy(buffer + buffer_shift, data, dataSize);
-                            window_recv_mask[receiveSeqNum - (lfr + 1)] = true;
+                        if (!windowReceive[receiveSeqNum - (lfr + 1)]) {
+                            memcpy(buffer + bufferShift, data, dataSize);
+                            windowReceive[receiveSeqNum - (lfr + 1)] = true;
                         }
                     }
 
-                    /* Set max sequence to sequence of frame with EOT */ 
                     if (eot) {
-                        buffer_size = buffer_shift + dataSize;
-                        recv_seq_count = receiveSeqNum + 1;
-                        recv_done = true;
+                        bufferSize = bufferShift + dataSize;
+                        receiveSeqCount = receiveSeqNum + 1;
+                        receive = false;
                     }
                 }
             }
             
-            /* Move to next buffer if all frames in current buffer has been received */
-            if (lfr >= recv_seq_count - 1) break;
+            if (lfr >= receiveSeqCount - 1) break;
         }
 
-        cout << "\r" << "[RECEIVED " << (unsigned long long) buffer_num * (unsigned long long) 
-                max_buffer_size + (unsigned long long) buffer_size << " BYTES]" << flush;
-        fwrite(buffer, 1, buffer_size, file);
-        buffer_num += 1;
+        cout << "\r" << "Receive " << (unsigned long long) bufferNum * (unsigned long long) 
+                maxBufferSize + (unsigned long long) bufferSize << " bytes" << endl;
+        fwrite(buffer, 1, bufferSize, file);
+        bufferNum += 1;
     }
 
     fclose(file);
 
-    /* Start thread to keep sending requested ack to sender for 3 seconds */
-    thread stdby_thread(send_ack);
+    thread stdby_thread(sendAck);
     timestamp start_time = now();
     while (differentTime(now(), start_time) < STDBY_TIME) {
-        cout << "\r" << "[STANDBY TO SEND ACK FOR 3 SECONDS | ]" << flush;
-        sleep_for(100);
-        cout << "\r" << "[STANDBY TO SEND ACK FOR 3 SECONDS / ]" << flush;
-        sleep_for(100);
-        cout << "\r" << "[STANDBY TO SEND ACK FOR 3 SECONDS - ]" << flush;
-        sleep_for(100);
-        cout << "\r" << "[STANDBY TO SEND ACK FOR 3 SECONDS \\ ]" << flush;
-        sleep_for(100);
+        sleep_for(400);
     }
     stdby_thread.detach();
 
-    cout << "\nAll done :)" << endl;
     return 0;
 }

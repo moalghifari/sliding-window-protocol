@@ -44,6 +44,18 @@ char checksum(char *frame, int count) {
     return (sum & 0xFFFF);
 }
 
+int create_frame(int seqNum, char *frame, char *data, int dataSize, bool eot) {
+    frame[0] = eot ? 0x0 : 0x1;
+    uint32_t netSeqNum = htonl(seqNum);
+    uint32_t netDataSize = htonl(dataSize);
+    memcpy(frame + 1, &netSeqNum, 4);
+    memcpy(frame + 5, &netDataSize, 4);
+    memcpy(frame + 9, data, dataSize);
+    frame[dataSize + 9] = checksum(frame, dataSize + (int) 9);
+
+    return dataSize + (int)10;
+}
+
 bool getAck(int *seqNum, bool *notSended, char *ack, bool *error) {
     uint32_t netSeqNum;
     memcpy(&netSeqNum, ack + 1, 4);
