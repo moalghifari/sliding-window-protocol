@@ -1,14 +1,11 @@
 #include <iostream>
 #include <thread>
-
 #include <stdio.h>
 #include <sys/socket.h>
 #include <netdb.h>
-
 #include "helpers.h"
 
 #define STDBY_TIME 5000
-
 using namespace std;
 
 int socketObj;
@@ -23,30 +20,26 @@ void sendAck() {
     socklen_t clientAddressSize;
     
     int recvSequenceNumber;
-    bool frameError;
+    bool errorStatus;
     bool eot;
 
     while (true) {
-        frameSize = recvfrom(socketObj, (char *)frame, MAX_FRAME_SIZE, 
-                MSG_WAITALL, (struct sockaddr *) &clientAddress, 
-                &clientAddressSize);
-        frameError = read_frame(&recvSequenceNumber, data, &dataSize, &eot, frame);
-
-        create_ack(recvSequenceNumber, ack, frameError);
-        sendto(socketObj, ack, ACK_SIZE, 0, 
-                (const struct sockaddr *) &clientAddress, clientAddressSize);
+        frameSize = recvfrom(socketObj, (char *)frame, MAX_FRAME_SIZE, MSG_WAITALL, (struct sockaddr *) &clientAddress, &clientAddressSize);
+        errorStatus = read_frame(&recvSequenceNumber, data, &dataSize, &eot, frame);
+        create_ack(recvSequenceNumber, ack, errorStatus);
+        sendto(socketObj, ack, ACK_SIZE, 0, (const struct sockaddr *) &clientAddress, clientAddressSize);
     }
 }
 
 int main(int argc, char * argv[]) {
     int port;
-    int windowLenght;
+    int lengthOfWindow;
     int maxBufferSize;
     char *fname;
 
     if (argc == 5) {
         fname = argv[1];
-        windowLenght = (int) atoi(argv[2]);
+        lengthOfWindow = (int) atoi(argv[2]);
         maxBufferSize = MAX_DATA_SIZE * (int) atoi(argv[3]);
         port = atoi(argv[4]);
     } else {
@@ -55,30 +48,29 @@ int main(int argc, char * argv[]) {
     }
 
     memset(&serverAddr, 0, sizeof(serverAddr)); 
-    memset(&clientAddress, 0, sizeof(clientAddress)); 
-      
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = INADDR_ANY; 
     serverAddr.sin_port = htons(port);
 
+    memset(&clientAddress, 0, sizeof(clientAddress)); 
+
     if ((socketObj = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        cerr << "socket creation failed" << endl;
+        cerr << "socket failed" << endl;
         return 1;
     }
 
     if (::bind(socketObj, (const struct sockaddr *)&serverAddr, 
             sizeof(serverAddr)) < 0) { 
-        cerr << "socket binding failed" << endl;
+        cerr << "socket binding error" << endl;
         return 1;
     }
 
     FILE *file = fopen(fname, "wb");
     char buffer[maxBufferSize];
-    int bufferSize;
-
     char frame[MAX_FRAME_SIZE];
     char data[MAX_DATA_SIZE];
     char ack[ACK_SIZE];
+    int bufferSize;
     int frameSize;
     int dataSize;
     int lfr, laf;
@@ -93,12 +85,12 @@ int main(int argc, char * argv[]) {
         memset(buffer, 0, bufferSize);
     
         int recvSequenceCount = (int) maxBufferSize / MAX_DATA_SIZE;
-        bool isWindowRecvMasked[windowLenght];
-        for (int i = 0; i < windowLenght; i++) {
+        bool isWindowRecvMasked[lengthOfWindow];
+        for (int i = 0; i < lengthOfWindow; i++) {
             isWindowRecvMasked[i] = false;
         }
         lfr = -1;
-        laf = lfr + windowLenght;
+        laf = lfr + lengthOfWindow;
         
         while (true) {
             socklen_t clientAddressSize;
@@ -120,18 +112,18 @@ int main(int argc, char * argv[]) {
                         memcpy(buffer + bufferShift, data, dataSize);
 
                         int shift = 1;
-                        for (int i = 1; i < windowLenght; i++) {
+                        for (int i = 1; i < lengthOfWindow; i++) {
                             if (!isWindowRecvMasked[i]) break;
                             shift += 1;
                         }
-                        for (int i = 0; i < windowLenght - shift; i++) {
+                        for (int i = 0; i < lengthOfWindow - shift; i++) {
                             isWindowRecvMasked[i] = isWindowRecvMasked[i + shift];
                         }
-                        for (int i = windowLenght - shift; i < windowLenght; i++) {
+                        for (int i = lengthOfWindow - shift; i < lengthOfWindow; i++) {
                             isWindowRecvMasked[i] = false;
                         }
                         lfr += shift;
-                        laf = lfr + windowLenght;
+                        laf = lfr + lengthOfWindow;
                     } else if (recvSequenceNumber > lfr + 1) {
                         if (!isWindowRecvMasked[recvSequenceNumber - (lfr + 1)]) {
                             memcpy(buffer + bufferShift, data, dataSize);
