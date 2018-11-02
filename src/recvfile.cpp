@@ -55,7 +55,7 @@ int main(int argc, char * argv[]) {
     memset(&clientAddress, 0, sizeof(clientAddress)); 
 
     if ((socketObj = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        count << "socket failed" << endl;
+        cout << "socket failed" << endl;
         return 1;
     }
 
