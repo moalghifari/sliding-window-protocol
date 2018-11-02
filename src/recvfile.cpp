@@ -79,18 +79,6 @@ int main(int argc, char * argv[]) {
     bool eot;
     bool frameError;
     bool recv = true;
-
-    cout << '======================================================' << endl;
-    cout << '======================================================' << endl;
-    cout << '===          |||||||  ||||||| |||||||||            ===' << endl;
-    cout << '===          |     |  |       |                    ===' << endl;
-    cout << '===          |||||||  |       |                    ===' << endl;
-    cout << '===          ||||     ||||||| |                    ===' << endl;
-    cout << '===          |  |||   |       |                    ===' << endl;
-    cout << '===          |   |||  ||||||| |||||||||            ===' << endl;
-    cout << '======================================================' << endl;
-    cout << '======================================================' << endl;
-
     while (recv) {
         bufferSize = maxBufferSize;
         memset(buffer, 0, bufferSize);
@@ -161,7 +149,7 @@ int main(int argc, char * argv[]) {
 
     fclose(file);
 
-    cout << "\nSend ACK for lost data in 5 seconds " << "n";
+    cout << "\nSend ACK for lost data in 5 seconds " << "\n";
 
     thread stdby_thread(sendAck);
     time_stamp start_time = current_time();
