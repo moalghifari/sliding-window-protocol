@@ -75,12 +75,23 @@ int main(int argc, char * argv[]) {
     int dataSize;
     int lfr, laf;
     int recvSequenceNumber;
+    int bufferNum = 0;
     bool eot;
     bool frameError;
+    bool recv = true;
 
-    bool recvDone = false;
-    int bufferNum = 0;
-    while (!recvDone) {
+    cout << '======================================================' << endl;
+    cout << '======================================================' << endl;
+    cout << '===          |||||||  ||||||| |||||||||            ===' << endl;
+    cout << '===          |     |  |       |                    ===' << endl;
+    cout << '===          |||||||  |       |                    ===' << endl;
+    cout << '===          ||||     ||||||| |                    ===' << endl;
+    cout << '===          |  |||   |       |                    ===' << endl;
+    cout << '===          |   |||  ||||||| |||||||||            ===' << endl;
+    cout << '======================================================' << endl;
+    cout << '======================================================' << endl;
+
+    while (recv) {
         bufferSize = maxBufferSize;
         memset(buffer, 0, bufferSize);
     
@@ -134,7 +145,7 @@ int main(int argc, char * argv[]) {
                     if (eot) {
                         bufferSize = bufferShift + dataSize;
                         recvSequenceCount = recvSequenceNumber + 1;
-                        recvDone = true;
+                        recv = false;
                     }
                 }
             }
@@ -142,8 +153,8 @@ int main(int argc, char * argv[]) {
             if (lfr >= recvSequenceCount - 1) break;
         }
 
-        cout << "\r" << "[RECEIVED " << (unsigned long long) bufferNum * (unsigned long long) 
-                maxBufferSize + (unsigned long long) bufferSize << " BYTES]" << flush;
+        cout << "\r" << "Receive " << (unsigned long long) bufferNum * (unsigned long long) 
+                maxBufferSize + (unsigned long long) bufferSize << " bytes" << flush;
         fwrite(buffer, 1, bufferSize, file);
         bufferNum += 1;
     }
