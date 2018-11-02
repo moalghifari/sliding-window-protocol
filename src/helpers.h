@@ -7,7 +7,7 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 
-#define MAX_DATA_SIZE 1024
+#define MAX_DATA_SIZE 1
 #define MAX_FRAME_SIZE 1034
 #define ACK_SIZE 6
 
